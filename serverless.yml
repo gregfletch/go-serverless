@@ -1,0 +1,130 @@
+service: go-sls
+
+# You can pin your service to only deploy with a specific Serverless version
+# Check out our docs for more details
+frameworkVersion: '2'
+
+provider:
+  name: aws
+  runtime: go1.x
+  lambdaHashingVersion: 20201221
+
+  stage: ${opt:stage, 'dev'}
+  region: ${env:REGION, 'us-east-1'}
+  stackName: gosls-${self:provider.profile}
+  apiName: ${self:custom.environment_prefix}-gosls-api-gateway
+  logRetentionInDays: 5
+
+  profile: ${env:PROFILE, 'personal'}
+  environment: ${self:custom.environment_variables.${self:provider.profile}}
+
+  logs:
+    restApi:
+      accessLogging: true
+      executionLogging: true
+      fullExecutionData: true
+
+  apiGateway:
+    metrics: true
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:ListBucket
+            - s3:ListBucketVersions
+          Resource:
+            - Fn::GetAtt:
+                - ArtifactBucket
+                - Arn
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:GetObjectVersion
+            - s3:PutObject
+          Resource:
+            - Fn::Join:
+                - ""
+                - - Fn::GetAtt: [ ArtifactBucket, Arn ]
+                  - "*"
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+          Resource:
+            - Fn::GetAtt:
+                - UsersTable
+                - Arn
+
+package:
+  patterns:
+    - '!./**'
+    - ./bin/**
+
+functions:
+  usersCreate:
+    handler: bin/users_create
+    name: ${self:custom.environment_prefix}-${self:service}-users-create
+    events:
+      - http:
+          path: /users
+          method: post
+    environment:
+      BUCKET_NAME: ${self:resources.Resources.ArtifactBucket.Properties.BucketName}
+      USERS_TABLE_NAME: ${self:custom.usersTableName}
+
+resources:
+  Resources:
+    ArtifactBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.environment_prefix}-go-sls-${self:provider.region}
+        VersioningConfiguration:
+          Status: Enabled
+
+    UsersTable:
+      Type: AWS::DynamoDB::Table
+      DeletionPolicy: Retain
+      Properties:
+        TableName: ${self:custom.usersTableName}
+        AttributeDefinitions:
+          - AttributeName: Id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: Id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+
+plugins:
+  - serverless-offline
+
+custom:
+  environment_prefixes:
+    dev: dev
+    staging: st
+    personal: st
+    production: pd
+  environment_prefix: ${self:custom.environment_prefixes.${self:provider.profile}}
+
+  environment_variables:
+    dev:
+      LOG_LEVEL: debug
+      PRETTY_LOGS: true
+    staging:
+      LOG_LEVEL: info
+    personal:
+      LOG_LEVEL: info
+
+  serverless-offline:
+    noAuth: true
+    httpPort: 3300
+    lambdaPort: 3302
+
+  usersTableName: ${self:custom.environment_prefix}-${self:service}-UsersTable
