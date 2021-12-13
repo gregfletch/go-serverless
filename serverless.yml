@@ -50,6 +50,7 @@ provider:
                   - "*"
         - Effect: Allow
           Action:
+            - dynamodb:GetItem
             - dynamodb:PutItem
           Resource:
             - Fn::GetAtt:
@@ -71,6 +72,15 @@ functions:
           method: post
     environment:
       BUCKET_NAME: ${self:resources.Resources.ArtifactBucket.Properties.BucketName}
+      USERS_TABLE_NAME: ${self:custom.usersTableName}
+  usersGet:
+    handler: bin/users_get
+    name: ${self:custom.environment_prefix}-${self:service}-users-get
+    events:
+      - http:
+          path: /users/{id}
+          method: get
+    environment:
       USERS_TABLE_NAME: ${self:custom.usersTableName}
 
 resources:
